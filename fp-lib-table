@@ -1,0 +1,3 @@
+(fp_lib_table
+  (lib (name CustomGGFootprints)(type KiCad)(uri /home/liam/github_projects/gg-sst-flashcart/cartridge_pcb/CustomGGFootprints.pretty)(options "")(descr ""))
+)
