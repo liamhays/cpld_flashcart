@@ -302,8 +302,6 @@ F 3 "~" H 1150 1050 50  0001 C CNN
 $EndComp
 Connection ~ 1150 900 
 Wire Wire Line
-	1150 900  950  900 
-Wire Wire Line
 	1150 1300 1150 1200
 Wire Wire Line
 	1150 900  1550 900 
@@ -889,25 +887,10 @@ Wire Wire Line
 Connection ~ 3450 3850
 Wire Wire Line
 	3450 3850 3700 3850
-$Comp
-L Logic_LevelTranslator:TXB0104PW U1
-U 1 1 60A4F48C
-P 1550 2050
-F 0 "U1" H 1550 1261 50  0000 C CNN
-F 1 "TXB0104PW" H 1550 1170 50  0000 C CNN
-F 2 "Package_SO:TSSOP-14_4.4x5mm_P0.65mm" H 1550 1300 50  0001 C CNN
-F 3 "http://www.ti.com/lit/ds/symlink/txb0104.pdf" H 1660 2145 50  0001 C CNN
-	1    1550 2050
-	1    0    0    -1  
-$EndComp
 Wire Wire Line
 	800  3250 550  3250
 Wire Wire Line
 	550  3250 550  1750
-Wire Wire Line
-	550  1750 1150 1750
-Wire Wire Line
-	1150 1950 600  1950
 Wire Wire Line
 	600  1950 600  3350
 Wire Wire Line
@@ -917,10 +900,6 @@ Wire Wire Line
 Wire Wire Line
 	650  3550 650  2150
 Wire Wire Line
-	650  2150 1150 2150
-Wire Wire Line
-	1150 2350 700  2350
-Wire Wire Line
 	700  2350 700  3750
 Wire Wire Line
 	700  3750 800  3750
@@ -929,15 +908,9 @@ Wire Wire Line
 Wire Wire Line
 	2350 2650 2350 1750
 Wire Wire Line
-	2350 1750 1950 1750
-Wire Wire Line
 	3700 2750 2300 2750
 Wire Wire Line
 	2300 2750 2300 1950
-Wire Wire Line
-	2300 1950 1950 1950
-Wire Wire Line
-	1950 2150 2250 2150
 Wire Wire Line
 	2250 2150 2250 2850
 Wire Wire Line
@@ -947,21 +920,73 @@ Wire Wire Line
 Wire Wire Line
 	2600 2950 2600 2350
 Wire Wire Line
-	2600 2350 1950 2350
+	550  1750 2350 1750
+$Comp
+L 4xxx:4050 U?
+U 1 1 60B9B079
+P 1550 1950
+F 0 "U?" H 1550 2267 50  0000 C CNN
+F 1 "4050" H 1550 2176 50  0000 C CNN
+F 2 "" H 1550 1950 50  0001 C CNN
+F 3 "http://www.intersil.com/content/dam/intersil/documents/cd40/cd4050bms.pdf" H 1550 1950 50  0001 C CNN
+	1    1550 1950
+	-1   0    0    -1  
+$EndComp
 Wire Wire Line
-	1450 1350 950  1350
+	1850 1950 2300 1950
 Wire Wire Line
-	950  1350 950  900 
-Connection ~ 950  900 
+	600  1950 1250 1950
+$Comp
+L 4xxx:4050 U?
+U 2 1 60C12E35
+P 1550 2150
+F 0 "U?" H 1550 2467 50  0000 C CNN
+F 1 "4050" H 1550 2376 50  0000 C CNN
+F 2 "" H 1550 2150 50  0001 C CNN
+F 3 "http://www.intersil.com/content/dam/intersil/documents/cd40/cd4050bms.pdf" H 1550 2150 50  0001 C CNN
+	2    1550 2150
+	-1   0    0    -1  
+$EndComp
 Wire Wire Line
-	950  900  500  900 
+	1850 2150 2250 2150
 Wire Wire Line
-	2300 900  2650 900 
+	650  2150 1250 2150
+$Comp
+L 4xxx:4050 U?
+U 3 1 60C8B5E7
+P 1550 2350
+F 0 "U?" H 1550 2667 50  0000 C CNN
+F 1 "4050" H 1550 2576 50  0000 C CNN
+F 2 "" H 1550 2350 50  0001 C CNN
+F 3 "http://www.intersil.com/content/dam/intersil/documents/cd40/cd4050bms.pdf" H 1550 2350 50  0001 C CNN
+	3    1550 2350
+	-1   0    0    -1  
+$EndComp
 Wire Wire Line
-	1650 1350 2650 1350
+	1850 2350 2600 2350
 Wire Wire Line
-	2650 1350 2650 900 
-Connection ~ 2650 900 
+	700  2350 1250 2350
 Wire Wire Line
-	2650 900  4300 900 
+	500  900  800  900 
+Wire Wire Line
+	2300 900  4300 900 
+$Comp
+L 4xxx:4050 U?
+U 7 1 60D09DAF
+P 800 1400
+F 0 "U?" H 1030 1446 50  0000 L CNN
+F 1 "4050" H 1030 1355 50  0000 L CNN
+F 2 "" H 800 1400 50  0001 C CNN
+F 3 "http://www.intersil.com/content/dam/intersil/documents/cd40/cd4050bms.pdf" H 800 1400 50  0001 C CNN
+	7    800  1400
+	1    0    0    -1  
+$EndComp
+Connection ~ 800  900 
+Wire Wire Line
+	800  900  1150 900 
+Wire Wire Line
+	800  1900 2300 1900
+Wire Wire Line
+	2300 1900 2300 1300
+Connection ~ 2300 1300
 $EndSCHEMATC

@@ -1,0 +1,75 @@
+* From CUPL source to working CPLD
+1. Compile the CUPL source to an intermediate file with `cupl -bxu
+   Atmel.dl f1502isptqfp44 <file>`. "-b" means "create Berkeley PLA
+   file", which sits in '<file>.tt2'. "-u" means "use this device
+   library", and 'Atmel.dl' is in the same directory as the 'cupl.exe'
+   executable.
+   
+2. Fit the compiled output with `fit1502.exe <file>.tt2 -cupl -dev
+   p1502t44`. 'fit1502.exe' is in the 'WinCupl/Fitters' directory, and
+   we're telling it to work in CUPL mode, and to use the ATF1502
+   device in the TQFP package (because the PLCC package has a
+   different pin layout). The fitter outputs several files, and the
+   one we want is '<file>.jed', the JEDEC-compatible fitted output.
+   
+3. Convert the JEDEC file to a SVF file with ATMISP7. Start it up
+   (ignore any errors about failing to find a USB cable), and make a
+   new device chain with 1 device, using the "New" button on the
+   toolbar. Set the device name to the ATF1502AS, the JTAG Instruction
+   to "Program/Verify", and browse for the JEDEC file that the fitter
+   just created. If you get the device name wrong, ATMISP will warn
+   you and fail to create the chain. Then, check the "Write SVF file"
+   box, and enter the destination file in the box. The default
+   settings ("Use state reset" checked, SVF revision D, and 1 µs TCK
+   period) are all fine. Finally, click "Run" to generate the file. If
+   you want to do this again, save the device chain somewhere.
+
+4. Finally, program the CPLD. Use the OpenOCD config file below,
+   connect the FTDI adapter to the CPLD as follows:
+   | FTDI adapter pin | CPLD JTAG pin |
+   |------------------+---------------|
+   | DTR              | TCK           |
+   | CTS              | TMS           |
+   | RXD              | TDI           |
+   | TXD              | TDO           |
+
+   The adapter can also power the CPLD---if not using it on some
+   pre-built board, MAKE SURE that all four VCC /and/ all four GND
+   pins are connected. If you don't do this, the CPLD won't be able to
+   send back the correct data and the programming will fail. You may
+   also want to add a .22µF decoupling capacitor between every pair of
+   VCC and ground pins, just for stability.
+
+   Start OpenOCD and the programming with 'openocd -f
+   ft232r_atf1502.cfg -c svf <file>.svf progress'. The '-c' argument
+   runs the commands passed to it, so that you don't have to access
+   the OpenOCD prompt through telnet. A successful run should make it
+   all the way through the SVF programming without any errors. If it
+   fails, as always, check your wiring.
+
+* OpenOCD config file (ft232r_atf1502.cfg)
+adapter driver ft232r
+adapter speed 10
+set CHIPNAME atf1502
+# Restore the serial mode after programming, 0x15 is the most common value
+ft232r_restore_serial 0x15
+# The default configuration for the ft232r driver isn't compatible
+# with the pins on a normal FTDI adapter, so these are custom.
+
+# 4 3 1 0: tck tms tdi tdo / DTR CTS RXD TXD
+ft232r_jtag_nums 4 3 1 0
+# According to the docs, every JTAG pin has to be specified. We don't
+# need TRST or SRST, so we map them to pins that are not present on a
+# normal 6-pin FTDI adapter (5 is DSR, 7, is RI).
+ft232r_trst_num 5
+ft232r_srst_num 7
+
+# Make the tap. '-enable' might not be necessary, but I'd rather not
+# take the risk. The instruction length, capture, and mask all come
+# from the BSDL file provided by Atmel.
+jtag newtap $CHIPNAME tap -enable -irlen 10 -ircapture 0b0001011001 -irmask 0b1111111111 -expected-id 0x0150203f
+
+# On startup, you should be able to see a small table where OpenOCD
+# scans the JTAG chain and finds our device.
+scan_chain
+

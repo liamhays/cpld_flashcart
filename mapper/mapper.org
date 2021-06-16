@@ -1,0 +1,102 @@
+* Original Hardware Function
+We're working from the images and schematics of Japanese SMS carts,
+because that's all SMS Power! has. Looking at one that uses the
+315-5235 mapper, we see that both ROM chips are specially connected
+(not important for our setup). The mapper itself has pins directly
+connected to the system up to and including A14, while A15 goes to a
+pin labeled /EXM2, which is just A15 on the Z80. Then, the mapper's
+outputs are OA14 to OA18 inclusive, which are connected to A14 through
+A18 on the ROM chip(s). The data lines the mapper uses are D0 through
+D4 inclusive and D7. We don't need to support SRAM or development
+boards (the 315-5235 does both), so we don't need D7.
+
+In fact, the entire bank control register at $fffc is irrelevant to
+us---bank offset isn't used by anything, work RAM selection isn't
+needed, and write protect is only on dev boards.
+
+That means the only registers we need to worry about are $fffd, $fffe,
+and $ffff, for a total of 16 input address lines. Then, we'll need
+outputs for A14 through A18 inclusive, to control the ROM. We'll also
+need D0 through D4 inclusive, power, ground, and some control
+pins.
+
+** Fixed location
+The range from $0000 to $03ff is fixed by the mapper. This means that
+the first 10 address pins ($03ff=1023=2^10) are fixed, or at least
+something like that.
+
+** Control pins
+_CE_ on the mapper is connected through a capacitor to ground /and/
+to the _MReg_ pin on the cartridge. However, this pin is absent on the
+GG. It's used to indicate when the Z80 is accessing or specifying a
+memory location, but the fact that it also goes to ground suggests
+that it can just be tied low (or left absent in a custom design). _RD_
+goes straight to _RD_ on the cartridge and ROM, and likewise with
+_WR_. I think these are used to spit back the values written to the
+registers (though wouldn't they also be stored in RAM?).
+
+** Pins required
+Modeling after the 315-5235, we get this set of I/O capable pins:
+| pins                | count |
+|---------------------+-------|
+| A0-A15 inclusive    |    16 |
+| OA14-OA18 inclusive |     5 |
+| D0-D4 inclusive     |     5 |
+| RD and WR           |     2 |
+|---------------------+-------|
+| Total               |    28 |
+
+whoa.
+
+
+** Logic
+*** List of conditions
+1. address lines read $fffd
+2. address lines read $fffe
+3. address lines read $ffff
+4. address lines within $0000-$3fff
+5. address lines within $4000-$7fff
+6. address lines within $8000-$bfff
+
+*** Responding to conditions
+1, 2, 3. At the memory register locations, the chip should read the
+   data lines and store what it read somewhere (perhaps in some DFFs?)
+
+4. When the address lines are within the range of area 0, the chip
+   should read the value last written to $fffd, probably stored within
+   the chip itself. *I suspect that this is as simple as mapping the
+   value from the data lines to the upper address lines.*
+
+
+** Controlling the upper lines (OA14-OA18 inclusive)
+Let's assume we're working with area 0, for practice. If we take the
+value from $fffd and write the lowest bit to OA14, while the highest
+bit is written to OA18.
+
+*** Example 1
+Let's say $fffd holds %01110. In this case, OA14 would be low,
+OA15-OA17 inclusive would be high, and OA18 would be low. The ROM
+would see this, when the Z80 reads from area 0:
+LSB                     MSB
+| 0000 0000 0000 0001 110(0) |
+
+The Z80 would see the lowest address (ignoring that 1Kbyte special
+space) as starting at ROM address $38000.
+
+hmmm.
+
+*** Example 2
+What about just OA14 high? That would give a minimum ROM address of
+32768 or $8000.
+
+*** Example 3
+Let's make the value of a bank %11000. That would make the lowest ROM
+address $60000, or 393216.
+
+*** Example 4
+That would be a bank register value of %11111. That would make the
+lowest ROM address $7C000, or 507904. That, combined with the highest
+readable address (where all the pins A0-A13 inclusive are high) gives
+us the total ROM size of 524288.
+
+

@@ -1,0 +1,110 @@
+Name		GG_Mapper;
+Partno		None;
+Date		6/6/2021;
+Revision 	1;
+Company		None;
+Location	None;
+Designer 	Liam Hays;
+Assembly	None;
+Device		f1502isptqfp44;
+Format		j;
+
+/* I don't know if we actually want the pin keeper to be on. The
+   answer is probably yes, because it would help the stability of the
+   whole system. */
+   
+PROPERTY ATMEL {PIN_KEEP=ON};
+PROPERTY ATMEL {JTAG=ON};
+PROPERTY ATMEL {logic_doubling=ON};
+
+/* This is probably the "reduced power bit" feature described in the
+   datasheet. Given the power used by the CPLD, this is a good idea. */
+PROPERTY ATMEL {MC_power=ON};
+
+/* XOR synthesis apparently defaults to off, despite the fact that the
+   optimization strategy is on and that particular strategy is
+   supposed to do this. */
+PROPERTY ATMEL {XOR_Synthesis=ON};
+
+/* I just let the fitter do the work of figuring out where the pins
+   go. That means that if I were to make a PCB, I would have to get
+   the pins figured out beforehand. */
+
+/* PIN declarations are device-specific---we're not assigning
+   macrocells, we're assigning actual wires that are specific to both
+   a chip and a package. */
+
+/* Apparently we're supposed to let the fitter find the best pins, to
+   maximize the efficiency of the fitted design. It works, so I figure
+   it's a good idea. */
+
+PIN = [A0..15]; /* GG address lines */
+PIN = [flashA14..18]; /* flash upper address lines */
+PIN = [D0..4]; /* GG data */
+/* I don't know if CUPL's "invert polarity" feature actually
+   works---some sources say it doesn't, others do. To be safe, I'm not
+   using it. */
+PIN = WR; /* GG write */
+
+/* This is used with the ATmega4809, to tell the MCU if the GG's address is
+   currently $fffb. */
+PIN = at_fffb;
+
+/* To use a dff, we definitely have to have a clock pin. */
+
+/* The registers for holding the values of each bank. */
+NODE [fffd0..4];
+NODE [fffe0..4];
+NODE [ffff0..4];
+
+/* These are the extensions supported by our device:
+   f1502isptqfp44   D T S R OE OEMUX CK CKMUX AR DQ LQ IO IOD IOL IOCK IOAR */
+   
+/* I think the order of these is correct. It should put the lowest
+   address bit in the lowest bit of the field. */
+   
+FIELD GG_address = [A15..0];
+FIELD flash_high_address = [flashA18..14];
+FIELD GG_data = [D4..0];
+
+/* The order of these does actually matter ([fffd4..0] is different
+   from [fffd0..4]). Putting the register fields this way makes
+   reg[0].d connect to D0, and matches the lowest entry in
+   flash_high_address align with the lowest register.*/
+
+FIELD fffd = [fffd4..0];
+FIELD fffe = [fffe4..0];
+FIELD ffff = [ffff4..0];
+
+
+
+/* Okay, an idea: we make (GG_address : 'h'fffd) & !WR) the clock, so
+   that when (and only when) the GG writes there, the the value on
+   the data bus flows to the dff. When nothing's being written, the
+   value is held in place. */
+fffd.ck = (GG_address : 'h'fffd) & !WR;
+fffe.ck = (GG_address : 'h'fffe) & !WR;
+ffff.ck = (GG_address : 'h'ffff) & !WR;
+
+fffd.d = GG_data;
+fffe.d = GG_data;
+ffff.d = GG_data;
+
+/* The things being &ed with each bank register are the check for every
+   bank. They will result in 1 bit, which is ANDed across that register,
+   enabling or disabling it. In the end, only one register should be anything
+   but zeros, and that is the one written to flash_high_address.
+
+   In the special case where the address is in the $0-$3ff range, this will
+   evaluate to 0, just as we want. */
+
+
+/* The RANGE operation is inclusive on both sides. */
+
+/* Despite the name, the .dq extension isn't the Q output of a dff.
+   To access that, we just access the register, and the fitter makes it work. */
+flash_high_address = ((GG_address : ['h'400..'h'3fff]) & fffd) #
+		     ((GG_address : ['h'4000..'h'7fff]) & fffe) #
+		     ((GG_address : ['h'8000..'h'bfff]) & ffff);
+
+at_fffb = GG_address : 'h'fffb;
