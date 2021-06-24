@@ -1,7 +1,7 @@
 #$ TOOL CUPL Atmel 1502 1.8.7.8
 #$ MODULE mapper
 #$ JEDECFILE mapper
-#$ PINS 28 at_fffb:34 flashA14:15 flashA15:14 flashA16:13 flashA17:12 flashA18:11 A0:8 A1:10 A2:35 A3:33 A4:31 A5:30 A6:28 A7:27 A8:25 A9:23 A10:44 A11:2 A12:3 A13:5 A14:42 A15:43 D0:21 D1:6 D2:20 D3:19 D4:18 WR:22 
+#$ PINS 28 at_fffb:34 flashA14:15 flashA15:14 flashA16:13 flashA17:12 flashA18:11 A0:10 A1:35 A2:33 A3:31 A4:30 A5:28 A6:27 A7:25 A8:23 A9:22 A10:44 A11:2 A12:3 A13:6 A14:42 A15:43 D0:20 D1:8 D2:19 D3:18 D4:40 WR:21 
 #$ NODES 15 fffd0:631 fffd1:632 fffd2:630 fffd4:628 fffd3:629 fffe0:626 fffe1:627 fffe2:625 fffe4:623 fffe3:624 ffff0:621 ffff2:619 ffff1:622 ffff4:618 ffff3:620 
 .type fr
 .i 37

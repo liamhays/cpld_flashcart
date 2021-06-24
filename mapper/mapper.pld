@@ -16,7 +16,7 @@ Format		j;
 PROPERTY ATMEL {PIN_KEEP=ON};
 PROPERTY ATMEL {JTAG=ON};
 PROPERTY ATMEL {logic_doubling=ON};
-
+PROPERTY ATMEL {pd1=ON}; /* We have the pins, and this simplifies the circuit. */
 /* This is probably the "reduced power bit" feature described in the
    datasheet. Given the power used by the CPLD, this is a good idea. */
 PROPERTY ATMEL {MC_power=ON};
