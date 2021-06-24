@@ -127,23 +127,25 @@ uint8_t SST39SF040::get_data() {
   return PINA;
 }
 
+/* First 4 bits of PORTE are not used by us, and high 2 bits are the same. */
 void SST39SF040::porte_reset() {
-  // PORTE = PORTE | 0b00110000;
+  PORTE = PORTE | 0b00110000;
   // Serial.println(PORTE, BIN);
-  digitalWrite(2, HIGH);
-  digitalWrite(3, HIGH);
+  /* digitalWrite(2, HIGH);
+     digitalWrite(3, HIGH);*/
 }
 
 void SST39SF040::rd_low() {
-  // PORTE = PORTE & 0b00001000;
+  PORTE = bitClear(PORTE, 5);// PORTE & 0b00010000;
   // Serial.println(PORTE, BIN);
-  digitalWrite(3, LOW);
+  // digitalWrite(3, LOW);
 }
 
 void SST39SF040::wr_low() {
-  // PORTE = PORTE & 0b00100000;
+  // PORTE = PORTE & 0b00010000;
+  PORTE = bitClear(PORTE, 4);
   // 
-  digitalWrite(2, LOW);
+  // digitalWrite(2, LOW);
 }
 
   

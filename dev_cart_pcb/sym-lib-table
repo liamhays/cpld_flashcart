@@ -1,0 +1,3 @@
+(sym_lib_table
+  (lib (name GGSymbols)(type Legacy)(uri /home/liam/github_projects/cpld_flashcart/GGSymbols/GGSymbols.lib)(options "")(descr ""))
+)

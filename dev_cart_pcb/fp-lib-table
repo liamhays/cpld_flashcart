@@ -1,0 +1,3 @@
+(fp_lib_table
+  (lib (name GGFootprints)(type KiCad)(uri /home/liam/github_projects/cpld_flashcart/GGFootprints.pretty)(options "")(descr ""))
+)

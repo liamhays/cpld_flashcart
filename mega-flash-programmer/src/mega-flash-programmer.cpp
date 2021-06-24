@@ -71,15 +71,19 @@ void setup() {
   // while (true);
 
   // Currently, with just porte_reset() using PORTE, this is fully
-  // functional (check by SHA256)
-  
-  // Let's enable rd_low() with PORTE. With it this way, the checksums
-  // vary.
+  // functional (check by SHA256). It does not seem to be, however,
+  // when adjusting RD is done with the PORT. The same goes for adjusting WR.
+
+  // Oddly, though, if we use bitClear, we can use the ports just fine.
   flash.data_lines_input();
   delay(1);
   file.close();
+  if (sd.remove("flash.out")) {
+    Serial.println("removed");
+  }
   File32 output;
   output.open("flash.out", FILE_WRITE);
+  // It seems that we should be deleting the file before we write to it.
   // Serial.println(flash.read_byte(0), HEX);
   for (uint32_t i = 0; i < s; i++) {
     // Serial.print(flash.read_byte(i), HEX);
