@@ -16,23 +16,204 @@ banks 1
 .define VDPControlPort $bf
 .define VDPDataPort $be
 
+.define ControllerPort1 $dc
 .define FileTableStart $3000
 
+;.define ArrowX $c001
+;.define ArrowY $c002
+.define CurrentFile $c001 ; which file is currently selected (0-indexed)
+.define FrameCounter $c002 ; how many frames have passed since the last time we let a button-press through?
 
 .bank 0 slot 0
 .org $0000
 
 ; Let's boot!
-  	di
+
+; Important: im 1 (or any interrupt mode instruction) does not enable
+; interrupts. We have to do that later.
+        di
 	im 1
 	jp main
-; .org $0038 (interrupt handler)
+	
+.org $0038
+	; In this handler, the + label is kind of a catch-all exit.
+        push af
+	push bc
+        ; Start by clearing the interrupt, which is done by clearing
+        ; bit 7 (INT) of the value read from the control port. Some
+        ; kind of I/O magic causes the VDP to clear this bit when the
+        ; Z80 reads it.
+ 
+        ; Also, we don't need the value, so we can just overwrite it
+        ; with what we want (ControllerPort1).
+        in a, (VDPControlPort)
 
+	; So this framecounter technicque is kind of working. It seems
+	; to stop moving on the third row, oddly. Without the frame-
+	; counter (should it be two words?), it goes several more rows
+	; before stopping
+	ld a, (FrameCounter)
+	inc a
+	ld (FrameCounter), a
+	
+	ld b, a
+	; 6 seems to be a good value. We definitely don't want something
+	; like 30.
+	ld a, 6
+	sub b
+	; not at 6 frames? exit
+	jr nz, +
+
+	; with the zero check, the whole screen flashes on a press and
+	; the arrow still doesn't get past the 3rd row. In fact, it returns
+	; to the first row, suggesting some kind of big reset.
+	ld a, $00
+	ld (FrameCounter), a
+	
+
+	in a, (ControllerPort1)
+	; ======= Check for down button
+        ; buttons are active-low, and the port A DOWN input is bit 1
+        bit 1, a
+	; not pressed? exit
+	call z, IncCurrentFile
+	; ======= Check for up button
+	bit 0, a
+	call z, DecCurrentFile
+
+	; check for start, bit 7 on port $00 (active low)
+	in a, ($00)
+	bit 7, a
+	jp z, Finish
+
+	+:
+	pop bc
+        pop af
+	; so after here, we're resetting to the top.
+	; however, it only occurs when the above condition (the jp nz, -) is met
+        ei
+        reti
+	
+; ========= SUBROUTINE ==========
+; This subroutine is quite simple: it just loads the value of
+; (CurrentFile), increments it, and writes it back to memory.
+; Note that this is quite different in terms of procedure
+; than DecCurrentFile.
+IncCurrentFile:
+	push af
+	push bc
+	push hl
+	
+	ld hl, FileTableStart
+	ld a, (FileTableStart)
+	ld b, a
+	ld a, (CurrentFile)
+
+	; there's an off-by-one error, so I just
+	; fix it here
+	dec b
+	cp b
+	; if we've reached the file count, reset
+	jr z, +
+	; otherwise, just increment
+	jr nz, ++
+
+	+:
+	; now reset if we're at the bottom
+	ld a, $00
+	ld (CurrentFile), a
+	; jump ahead without incrementing
+	jr +++
+	
+	++:
+	inc a
+	ld (CurrentFile), a
+
+	+++:
+	call UpdateArrowPosition
+	
+	pop hl
+	pop bc
+	pop af
+	ret
+	
+; ========= SUBROUTINE ==========
+; Nearly identical to IncCurrentFile, but decrements and wraps if zero, not the
+; number of files.
+DecCurrentFile:
+	push af
+	ld a, (CurrentFile)
+	cp 0
+	; not zero? update the position but don't reset
+	jr z, +
+	jr nz, ++
+	
+
+	; check if we're at the top, and reset
+	; if we're there
+	
+	+:
+	; now reset if we're at the top
+	ld a, (FileTableStart)
+	ld (CurrentFile), a
+	
+	++:
+	dec a
+	ld (CurrentFile), a
+	call UpdateArrowPosition
+	pop af
+	ret
+; ========= SUBROUTINE ==========
+; This will read the value at (CurrentFile) and update the Y position of
+; the arrow sprite accordingly.
+UpdateArrowPosition:
+	; now we have to do repeated addition
+	; this needs to run as many times as are in b, which will take
+        ; some changes to the loop
+	push af ; we're going to use a and adjust some flags
+	push bc ; we're going to use b and c
+	ld a, (CurrentFile)
+	ld b, a ; counter
+	-:
+		; we check first, so that a value of 0 will just exit
+                ; the loop routine
+		ld a, b
+		or $00
+		jr z, +
+		; if not zero, continue and add 8 to the old value
+		ld a, c
+		add a, 8
+		; we have to use c because there's no way to check
+		; the value of b without using a
+		ld c, a
+		dec b
+		; we have to go back now, though
+		jr -
+
+	+:
+	; with the VDP configured as it is, the SAT starts at $3f00
+	ld a, $00
+	out (VDPControlPort), a
+	ld a, $3f | %01000000 ; writes to the data port go to VRAM
+	out (VDPControlPort), a
+
+	; after the multiplication (of sorts), the y coord is in c.
+	ld a, c
+	; add the GG 3-row offset and write out the y coord (which sits
+	; at exactly $3f00 in the SAT)
+	add a, 24
+	out (VDPDataPort), a
+	
+	pop bc
+	pop af
+	ret
+	
 ; ========= SUBROUTINE ==========
 ; This will write (20 - 12) + 6 + 6 null tiles out to the tilemap
-; it's used for filling in what remains after writing the filename, and
-; makes the tilemap wrap around. This function assumes that the addresses
-; and such are already properly configured.
+
+; it's used for filling in what remains after writing the filename,
+; and makes the tilemap wrap around. This function assumes that the
+; addresses and such are already properly configured.
 
 NullTileWrap:
 	push hl
@@ -50,6 +231,46 @@ NullTileWrap:
 	pop bc
 	pop hl
 	ret
+
+Finish:
+	ld a, 0 ; value doesn't matter, so 0 is fine
+	; $fffb is the special location monitored by the CPLD
+	; and the ATmega
+	ld ($fffb), a
+	; hold fffb for a little bit, just to be safe
+	ld a, 0
+	ld b, 100
+	-:
+		dec b
+		cp b
+		jr nz, -
+
+
+	; Now, we need to write to the flash. To do that, we first
+	; have to unlock "Software Data Protection". Each following
+	; write sequence will not write, only the last one will make
+	; any change.
+	ld a, $aa
+	ld ($5555), a
+	ld a, $55
+	ld ($2aaa), a
+	ld a, $a0
+	ld ($5555), a
+
+	; now, we can write one byte
+	
+	; $2990 is actually a good place
+	; it is unlikely to conflict with the program,
+	; and it won't edit the table (though it wouldn't
+	; be a big deal if that happened)
+	ld a, (CurrentFile)
+	ld ($2990), a
+	; and now, the program should just hang
+	; I hope (and expect) that it won't cause any issues
+	; on the flash, but it might
+	; for testing purposes, we can say this:
+	jp $0000
+		
 	
 main:
 	ld sp, $dff0
@@ -84,7 +305,8 @@ main:
 	out (VDPControlPort), a
 
 	ld hl, ASCIITiles
-	ld bc, ASCIITilesEnd-ASCIITiles
+	; load both at the same time
+	ld bc, ArrowTileEnd-ASCIITiles
 	-:
 		ld a, (hl)
 		out (VDPDataPort), a
@@ -103,7 +325,8 @@ main:
 	out (VDPControlPort), a
 	; write the actual palette
 	ld hl, BackgroundPalette
-	ld b, BackgroundPaletteEnd-BackgroundPalette
+	; load both palettes at the same time (they're each 16 words)
+	ld b, SpritePaletteEnd-BackgroundPalette
 	ld c, VDPDataPort
 	otir
 
@@ -154,7 +377,6 @@ main:
         ; by the value of d
 	
 	--:
-
 		ld bc, 12 ; always 12 bytes
 		-:
 			ld a, (hl)
@@ -172,14 +394,13 @@ main:
 			dec bc
 			ld a, b
 			or c
-
 			jr nz, -
 			
 		; remember, we only want to loop as many times as are
 		; in the first byte of the table. this is the same
 		; ORing method as used in the writing to the VDP
 
-		; spit out the wrapping before we do any comparisons,
+		; spit out the wrapping /before/ we do any comparisons,
 		; because NullTileWrap doesn't push af.
 		call NullTileWrap
 		; is d 0?
@@ -188,14 +409,48 @@ main:
 		or $00
 		jr nz, --
 
+	; start by preloading our variable
+	ld a, 0
+	ld (CurrentFile), a
+
+
+	; It seems as though the right way to fill the SAT
+	; would be to send a lot of zeros. However, since we
+	; have control over the VRAM address, we can just
+	; change addresses (in this case to $3f80)
+	ld a, $80
+	out (VDPControlPort), a
+	ld a, $3f | %01000000
+	out (VDPControlPort), a
+	
+	; The sprite is actually 7x4 (in an 8x8 tile), so a good X
+        ; location is 50.
+	
+	ld a, 50
+	out (VDPDataPort), a
+	ld a, 95 ; tile number 95
+	out (VDPDataPort), a
+
+	call UpdateArrowPosition
+
 	; enable frame interrupts and turn the screen on.
-	ld a, %01000000
+	
+	; so this is not actually enabling interrupts (or maybe it is
+	; and we're not receiving them?), but the other functions of
+	; this register are working fine
+	
+	ld a, %01100000
 	out (VDPControlPort), a
 	ld a, $80 | $01
 	out (VDPControlPort), a
+	; reset, just in case
+	ld a, $00
+	ld (FrameCounter), a
+	
+	ei
 	; and now, wait for an interrupt.
-	loop:
-		jp loop
+	@loop:
+		jr @loop
 
 
 ; This is the data sent to the VDP to change the register values. Note
@@ -221,7 +476,7 @@ VDPInitData:
 .db $ff       ($80 | $05)
 ; Sprite pattern generator base address: we definitely don't
 ; need to use the upper half of tile memory for sprites
-.db $ff       ($80 | $06)
+.db $00       ($80 | $06)
 ; Backdrop color, we want it to be the first color on the palette (so $00)
 .db $00       ($80 | $07)
 ; Background X scroll: disable
@@ -239,12 +494,16 @@ ASCIITiles:
 .include "fontdata.inc"
 ASCIITilesEnd:
 
+ArrowTile:
+.include "arrow_tile.inc"
+ArrowTileEnd:
+
 BackgroundPalette:
-.dw $0000 $0fff
+.dw $0000 $0fff $0000 $0000 $0000 $0000 $0000 $0000 $0000 $0000 $0000 $0000 $0000 $0000 $0000 $0000
 BackgroundPaletteEnd:
 
 SpritePalette:
-.db $00 $ff
+.dw $0000 $0fff $0000 $0000 $0000 $0000 $0000 $0000 $0000 $0000 $0000 $0000 $0000 $0000 $0000 $0000
 SpritePaletteEnd:
 
 Text:
