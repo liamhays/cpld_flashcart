@@ -17,13 +17,13 @@ banks 1
 .define VDPDataPort $be
 
 .define ControllerPort1 $dc
+.define ErrorByte $2999
 .define FileTableStart $3000
 
-;.define ArrowX $c001
-;.define ArrowY $c002
 .define CurrentFile $c001 ; which file is currently selected (0-indexed)
 .define FrameCounter $c002 ; how many frames have passed since the last time we let a button-press through?
-
+.define ArrowPosition $c003
+.define TableOffset $c004
 .bank 0 slot 0
 .org $0000
 
@@ -39,6 +39,7 @@ banks 1
 	; In this handler, the + label is kind of a catch-all exit.
         push af
 	push bc
+	push hl
         ; Start by clearing the interrupt, which is done by clearing
         ; bit 7 (INT) of the value read from the control port. Some
         ; kind of I/O magic causes the VDP to clear this bit when the
@@ -48,28 +49,25 @@ banks 1
         ; with what we want (ControllerPort1).
         in a, (VDPControlPort)
 
+	;ld a, 16
+	;sub 18
 	; So this framecounter technicque is kind of working. It seems
 	; to stop moving on the third row, oddly. Without the frame-
 	; counter (should it be two words?), it goes several more rows
 	; before stopping
-	ld a, (FrameCounter)
-	inc a
-	ld (FrameCounter), a
-	
+	ld hl, FrameCounter
+	inc (hl)
+	ld a, (hl)
 	ld b, a
 	; 6 seems to be a good value. We definitely don't want something
 	; like 30.
 	ld a, 6
-	sub b
+	cp b
 	; not at 6 frames? exit
 	jr nz, +
-
-	; with the zero check, the whole screen flashes on a press and
-	; the arrow still doesn't get past the 3rd row. In fact, it returns
-	; to the first row, suggesting some kind of big reset.
+	; otherwise, reset
 	ld a, $00
-	ld (FrameCounter), a
-	
+	ld (hl), a
 
 	in a, (ControllerPort1)
 	; ======= Check for down button
@@ -87,124 +85,199 @@ banks 1
 	jp z, Finish
 
 	+:
+	pop hl
 	pop bc
         pop af
 	; so after here, we're resetting to the top.
 	; however, it only occurs when the above condition (the jp nz, -) is met
         ei
         reti
-	
+
+.include "compare_to_18.asm"
+
 ; ========= SUBROUTINE ==========
-; This subroutine is quite simple: it just loads the value of
-; (CurrentFile), increments it, and writes it back to memory.
-; Note that this is quite different in terms of procedure
-; than DecCurrentFile.
+; This subroutine does a lot. I won't explain it all here, but the comments
+; within are plenty descriptive.
+
 IncCurrentFile:
 	push af
 	push bc
 	push hl
-	
-	ld hl, FileTableStart
-	ld a, (FileTableStart)
-	ld b, a
+	; we first check if the arrow is at the bottom of the screen
+	ld a, (ArrowPosition)
+	cp 17 ; 17 because zero-indexed
+	; if it's not 17, it must be above the bottom row,
+	; so we can just increment and refresh.
+	jr nz, @IncrementArrowExit
+
+	; if it's 17, (meaning we're now here in the code) do another
+	; check: is CurrentFile at the bottom of the table?
+
 	ld a, (CurrentFile)
-
-	; there's an off-by-one error, so I just
-	; fix it here
-	dec b
-	cp b
-	; if we've reached the file count, reset
-	jr z, +
-	; otherwise, just increment
-	jr nz, ++
-
-	+:
-	; now reset if we're at the bottom
-	ld a, $00
-	ld (CurrentFile), a
-	; jump ahead without incrementing
-	jr +++
+	inc a ; because CurrentFile is zero-indexed
+	ld hl, FileTableStart
+	cp (hl)
+	; if we're at the bottom, reset the offset, redraw,
+	; and put the arrow at the top
+	jr z, @ResetOffset
 	
-	++:
-	inc a
-	ld (CurrentFile), a
+	; otherwise, increment the offset (and file counter), redraw,
+	; and leave the arrow alone
+	ld hl, CurrentFile
+	inc (hl)
 
-	+++:
-	call UpdateArrowPosition
+	ld hl, TableOffset
+	inc (hl)
 	
-	pop hl
-	pop bc
-	pop af
-	ret
+	call UpdateTilemap
+	jr @Exit
+	
+	@IncrementArrowExit:
+		; if the arrow is at the bottom row of the table, reset
+		; this is a special case for when the table is less than
+		; 18 entries long
+		ld a, (ArrowPosition)
+		inc a
+		ld hl, FileTableStart
+		cp (hl)
+		jr z, @ResetOffset
+		
+		; of course, we have to increment the position and counter
+		ld hl, ArrowPosition
+		inc (hl)
+
+		ld hl, CurrentFile
+		inc (hl)
+		
+		call RedrawArrow
+		jr @Exit
+
+	; this is slow, but it does seem to be working.
+	@ResetOffset:
+		; reset the table offset, redraw, reset the arrow position, and
+		; redraw the arrow
+		ld a, 0
+		ld (TableOffset), a
+		
+		; a is still 0
+		ld (ArrowPosition), a
+
+		ld (CurrentFile), a
+		
+		call UpdateTilemap
+		call RedrawArrow
+		; we can flow directly to @Exit now.
+	@Exit:
+		pop hl
+		pop bc
+		pop af
+		ret
 	
 ; ========= SUBROUTINE ==========
-; Nearly identical to IncCurrentFile, but decrements and wraps if zero, not the
-; number of files.
+; While it seems like this subroutine would be basically identical
+; to IncCurrentFile, it isn't.
 DecCurrentFile:
 	push af
-	ld a, (CurrentFile)
+	push hl
+
+	; if the arrow is not at 0, just decrement the counters and arrow
+	ld a, (ArrowPosition)
 	cp 0
-	; not zero? update the position but don't reset
-	jr z, +
-	jr nz, ++
-	
+	jr nz, @Decrement
 
-	; check if we're at the top, and reset
-	; if we're there
+	; if the table offset is 0, move to the bottom of the table
+	ld a, (TableOffset)
+	cp 0
+	jr z, @ResetToBottom
+
+	; otherwise, just decrement the counters and redraw the tilemap.
+	; we don't want to adjust the arrow, because it needs to stay
+	; at the top
+	ld hl, TableOffset
+	dec (hl)
+
+	ld hl, CurrentFile
+	dec (hl)
 	
-	+:
-	; now reset if we're at the top
-	ld a, (FileTableStart)
-	ld (CurrentFile), a
+	call UpdateTilemap
+	call RedrawArrow
+	jr @Exit
 	
-	++:
-	dec a
-	ld (CurrentFile), a
-	call UpdateArrowPosition
-	pop af
-	ret
+	@Decrement:
+		ld hl, CurrentFile
+		dec (hl)
+
+		ld hl, ArrowPosition
+		dec (hl)
+		call RedrawArrow
+
+		jr @Exit
+		
+	@ResetToBottom:
+		ld a, (FileTableStart)
+		call LessThanOrEqualTo18
+		cp 1
+		; if it's <= 18, just go to the bottom
+		jr z, @@TableBottom
+		; otherwise, do this.
+		ld a, (FileTableStart)
+		sub 18
+		ld (TableOffset), a
+
+		; one less than the number of items in the table,
+		; because zero-indexing
+		ld a, (FileTableStart)
+		dec a
+		ld (CurrentFile), a
+
+		ld a, 17 ; zero-indexed
+		ld (ArrowPosition), a
+		jr @@Update
+		
+		@@TableBottom:
+			ld a, (FileTableStart)
+			dec a
+
+			ld (ArrowPosition), a
+			ld (CurrentFile), a
+			ld a, 0
+			ld (TableOffset), a
+			
+		@@Update:
+			call UpdateTilemap
+			call RedrawArrow
+	@Exit:
+		pop hl
+		pop af
+		ret
+	
 ; ========= SUBROUTINE ==========
-; This will read the value at (CurrentFile) and update the Y position of
+; This will read the value at (ArrowPosition) and update the Y position of
 ; the arrow sprite accordingly.
-UpdateArrowPosition:
-	; now we have to do repeated addition
-	; this needs to run as many times as are in b, which will take
-        ; some changes to the loop
-	push af ; we're going to use a and adjust some flags
-	push bc ; we're going to use b and c
-	ld a, (CurrentFile)
-	ld b, a ; counter
-	-:
-		; we check first, so that a value of 0 will just exit
-                ; the loop routine
-		ld a, b
-		or $00
-		jr z, +
-		; if not zero, continue and add 8 to the old value
-		ld a, c
-		add a, 8
-		; we have to use c because there's no way to check
-		; the value of b without using a
-		ld c, a
-		dec b
-		; we have to go back now, though
-		jr -
+RedrawArrow:
+	; a bit of smart code ordering means the only register we use
+	; is a.
+	push af
 
-	+:
 	; with the VDP configured as it is, the SAT starts at $3f00
 	ld a, $00
 	out (VDPControlPort), a
 	ld a, $3f | %01000000 ; writes to the data port go to VRAM
 	out (VDPControlPort), a
 
-	; after the multiplication (of sorts), the y coord is in c.
-	ld a, c
+	; we have to multiply the value in CurrentFile by 8,
+	; which is equivalent to left-shifting the value by 3 bits.
+	ld a, (ArrowPosition)
+	; just 3 times (6 cycles total), so this is very fast
+	sla a
+	sla a
+	sla a
+
 	; add the GG 3-row offset and write out the y coord (which sits
 	; at exactly $3f00 in the SAT)
 	add a, 24
 	out (VDPDataPort), a
 	
-	pop bc
 	pop af
 	ret
 	
@@ -216,20 +289,20 @@ UpdateArrowPosition:
 ; addresses and such are already properly configured.
 
 NullTileWrap:
-	push hl
 	push bc
 	; 20 tiles in the screen, 6 on either side, 12 tiles already written
 	; multiply by two because tiles are 2 bytes
-	ld bc, ((20 - 12) + 6 + 6) * 2
+	; using 'out (c), r' means we can simplify the loop quite a bit
+	ld c, VDPDataPort
+	ld b, 0
+	ld a, ((20 - 12) + 6 + 6) * 2
 	-:
-		ld a, $00
-		out (VDPDataPort), a
-		dec bc
-		ld a, b
-		or c
+		out (c), b
+		; check for 0
+		dec a
+		cp 0
 		jr nz, -
 	pop bc
-	pop hl
 	ret
 
 Finish:
@@ -270,8 +343,97 @@ Finish:
 	; on the flash, but it might
 	; for testing purposes, we can say this:
 	jp $0000
-		
+
+.include "multiply_by_12.asm"
+; ========= SUBROUTINE ==========
+; This subroutine updates the tilemap starting at the row
+; stored in TableOffset. It draws 18 rows and stops.
+UpdateTilemap:
+	push af
+	push bc
+	push de
+	push hl
+
+	; This adjusts the starting address to go to the first tile on
+	; the screen (minus one)
+	; 6+20+6 is the width of the screen, we have 3 rows, and each tile
+	; is 2 bytes. The extra 6 is the starting columns before the screen.
+	; Finally, there's an extra 8 bytes to the left of the screen.
+
+
+	; also, we subtract one because that makes it work (I don't know)
+	ld a, ((6+20+6)*3 + 6) * 2;low byte to adjust
+	out (VDPControlPort), a
+	ld a, $38 | %01000000
+	out (VDPControlPort), a
+
+	; we have to have a space for the little arrow, so let's write
+        ; one null tile
+	ld a, $00
+	out (VDPDataPort), a
+	out (VDPDataPort), a
+	; Importantly, the table format does not rely on having the assembler
+	; calculate an end address, because then the ATmega would have to do
+	; all that work, instead of just writing that special start byte.
+
+	; this will put the number of files in d, which isn't likely
+	; to be used by anything
+
+	; if we get here, then the file count is greater than 18.
+
+	ld a, (TableOffset)
+	; these two loads just put a in the low byte of hl
+	ld l, a
+	ld h, 0
+	call MultiplyBy12 ; now hl = hl * 12
+
+	; we have to add b*12 (in hl) to FileTableStart to create the
+        ; desired offset
 	
+	; add one to the start to skip the special byte
+	ld de, FileTableStart + 1
+	add hl, de ; final start byte address is in hl
+	; we're kind of cheating here: the placement of the table means that
+	; there will always be enough zeros to not cause an issue after the
+	; end of the real data.
+	; this does require that the ATmega write the $0-$3fff with zeroes,
+	; but it should probably be doing that anyway.
+	ld d, 18 ; loop 18 times
+
+	SendTiles:	
+		ld e, 12 ; always 12 bytes
+		-:
+			ld a, (hl)
+			; adjust for the difference between the ASCII
+			; value and the tile start
+			sub $20
+			out (VDPDataPort), a
+			; we write out the second byte, which is 0, since we
+			; have to. if we were using all 512 tiles, then we would
+			; have to do some bit magic
+			ld a, $00
+			out (VDPDataPort), a
+			; basic stuff: have we reached 12 bytes?
+			inc hl
+			dec e
+			; a is already 0 from before
+			cp e
+			jr nz, -
+
+		; spit out the wrapping /before/ we do any comparisons,
+		; because NullTileWrap doesn't push af.
+		call NullTileWrap
+		; is d 0?
+		dec d
+		; a is /still/ zero, from the innermost loop
+		cp d
+		jr nz, SendTiles
+	pop hl
+	pop de
+	pop bc
+	pop af
+	ret
+
 main:
 	ld sp, $dff0
 
@@ -330,89 +492,23 @@ main:
 	ld c, VDPDataPort
 	otir
 
-	; The font data starts at ASCII $20, which is <space>. We just have
-	; to load the data from the table and subtract $20.
-
-	; let's start by writing the necessary zeros, to fill the space from
-	; the start of the tilemap to the beginning of the GG's screen.
-	ld a, $00
-	out (VDPControlPort), a
-	ld a, $38|%01000000
-	out (VDPControlPort), a
-
-	ld a, $00
-	; 6+20+6 is the width of the screen, we have 3 rows, and each tile
-	; is 2 bytes. The extra 6 is the starting columns before the screen.
-	; The whole thing is multiplied by 2 because 2 bytes / tile.
-	ld bc, (((6+20+6)*3) + 6) * 2
-	-:
-		ld a, $00
-		out (VDPDataPort), a
-		dec bc
-		ld a, b
-		or c
-		jr nz, -
-
-
-	; we have to have a space for the little arrow, so let's write
-        ; one null tile
-	ld a, $00
-	out (VDPDataPort), a
-	ld a, $00
-	out (VDPDataPort), a
+	; if a certain bit is set at location $2999, then
+	; we need to display an error message.
+	; this loader doesn't support more than 256 files,
+	; and the error byte will indicate one of a few
+	; different errors:
+	; $0 - nothing, proceed as usual
+	; $1 - too many files
+;	ld a, (ErrorByte)
+;	cp 1
+;	jp z, DisplayErrorMessage
 	
-	; All right! now we can load the actual data
-	
-	; Importantly, the tile format does not rely on having the assembler
-	; calculate an end address, because then the ATmega would have to do
-	; all that work, instead of just writing that special start byte.
-	
-	ld hl, FileTableStart
-	; this will put the number of files in d, which isn't likely
-	; to be used by anything
-	ld d, (hl)
-	; increment so that we're past the file count
-	inc hl
-	; This is the loop that will load each filename, as controlled
-        ; by the value of d
-	
-	--:
-		ld bc, 12 ; always 12 bytes
-		-:
-			ld a, (hl)
-			; adjust for the difference between the ASCII
-			; value and the tile start
-			sub $20
-			out (VDPDataPort), a
-			; we write out the second byte, which is 0, since we
-			; have to. if we were using all 512 tiles, then we would
-			; have to do some bit magic
-			ld a, $00
-			out (VDPDataPort), a
-			; basic stuff: have we reached 12 bytes?
-			inc hl
-			dec bc
-			ld a, b
-			or c
-			jr nz, -
-			
-		; remember, we only want to loop as many times as are
-		; in the first byte of the table. this is the same
-		; ORing method as used in the writing to the VDP
+	ld a, 0
+	ld (TableOffset), a
+	call UpdateTilemap
 
-		; spit out the wrapping /before/ we do any comparisons,
-		; because NullTileWrap doesn't push af.
-		call NullTileWrap
-		; is d 0?
-		dec d
-		ld a, d
-		or $00
-		jr nz, --
-
-	; start by preloading our variable
 	ld a, 0
 	ld (CurrentFile), a
-
 
 	; It seems as though the right way to fill the SAT
 	; would be to send a lot of zeros. However, since we
@@ -431,14 +527,15 @@ main:
 	ld a, 95 ; tile number 95
 	out (VDPDataPort), a
 
-	call UpdateArrowPosition
+	call RedrawArrow
 
 	; enable frame interrupts and turn the screen on.
 	
 	; so this is not actually enabling interrupts (or maybe it is
 	; and we're not receiving them?), but the other functions of
 	; this register are working fine
-	
+
+	@TurnOnScreen:
 	ld a, %01100000
 	out (VDPControlPort), a
 	ld a, $80 | $01
@@ -515,17 +612,32 @@ TextEnd:
 ; The table has a simple format:
 ; byte 0: number of elements
 ; each file is 12 bytes long, and filenames shorter than 12 bytes
-;   are padded with 0
+; are padded with 0
 ;   Important: they are padded on the right-hand side, not the left
 .org FileTableStart
 FileTable:
-; simple example for now
-; 5 files, "sonic.sms", "alexkidd.sms", "wndrboy.gg", "snocdrft.gg", and "columns.gg"
-.db 5
-.db "sonic.sms" $0 $0 $0
+; 21 entries currently
+.db (FileTableEnd-FileTable) / 12
+.db "sonic.sms" 0 0 0
 .db "alexkidd.sms"
 .db "wndrboy.gg" $0 $0
 .db "suprcols.sms" 
-;.db "snocdrft.gg" $0
 .db "columns.gg" $0 $0
+.db "snocdrft.gg" 0
+.db "columns2.gg" 0
+.db "ernieels.gg" 0
+.db "bowl.gg" 0 0 0 0 0
+.db "3ddemo.gg" 0 0 0
+.db "sncchaos.gg" 0
+.db "addams.gg" 0 0 0
+.db "aladdin.gg" 0 0
+.db "bubbbobb.gg" 0
+.db "timer.gg" 0 0 0 0
+.db "puyopuyo.gg" 0
+.db "alf.sms" 0 0 0 0 0
+.db "fantzone.sms"
+.db "ramboiii.sms"
+.db "r-type.sms" 0 0
+.db "zillion.sms" 0
+
 FileTableEnd:
